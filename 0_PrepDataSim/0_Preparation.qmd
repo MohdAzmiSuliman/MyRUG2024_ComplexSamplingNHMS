@@ -1,0 +1,126 @@
+---
+title: "Background Planning"
+date: last-modified
+date-format: "dddd, DD/MM/YYYY"
+format: 
+  html:
+    theme: flatly
+    code-fold: true
+    code-copy: hover
+    code-overflow: wrap
+    code-tools: true
+    df-print: paged
+    default-image-extension: svg
+    embed-resources: true
+    page-layout: full
+    reference-location: margin
+    title-block-banner: true
+    title-block-style: default
+    fontsize: .9em
+    monofont: 'Fira Code'
+execute: 
+  echo: true
+  warning: true
+number-sections: true
+toc: true
+fig-dpi: 320
+dpi: 320
+---
+
+# Presentation Planning
+
+To do:
+
+- Background Population
+
+```{r}
+#| label: setup
+
+pacman::p_load(tidyverse, haven, labelled, arrow, simstudy)
+```
+
+
+# Selangor Background Population
+
+Data source: OpenDOSM
+
+```{r}
+pop_dist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
+
+pop_dist %>% 
+  filter(state == "Selangor", 
+         district %in% c("Kuala Langat", "Kuala Selangor", "Sabak Bernam", 
+                         "Petaling", "Gombak"), 
+         date == dmy("01/01/2023"), 
+         sex != "both", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
+                    "50-54", "55-59"), 
+         ethnicity %in% c("bumi_malay", "chinese", "indian")) %>% 
+  mutate(age2 = case_when(
+    age %in% c("20-24", "24-29") ~ "20-29",
+    age %in% c("30-34", "35-39") ~ "30-39",
+    age %in% c("40-44", "45-49") ~ "40-49",
+    age %in% c("50-54", "55-59") ~ "50-59"
+  )) %>% 
+  group_by(state, district, date, sex, ethnicity, age2) %>% 
+  summarise(population = sum(population, na.rm = TRUE)) %>% 
+  ungroup()
+```
+
+```{r}
+
+
+
+```
+
+
+# Responden Data Simulation
+
+## Data Definition
+
+```{r}
+def <- defData(varname = "gender", dist = "binary", formula = 0.5, 
+               link = "identity") %>% 
+  defData(varname = "age", dist = "uniform", formula = "20;59") %>% 
+  defData(varname = "ethnicity", dist = "categorical", 
+          formula = "0.57;0.29;0.14") %>% 
+  defData(varname = "BMI", dist = "normal", formula = 26, variance = 2.6^2) %>% 
+  defData(varname = "height", dist = "normal", formula = 1.65, variance = 0.08^2) %>% 
+  defData(varname = "PAhour", dist = "uniform", formula = "2;6") %>% 
+  defData(varname = "hba1c", dist = "normal", 
+               formula = "2.4 + 0.05 * age + 0.1 * BMI - 0.15 * PAhour", variance = 1.4^2)
+```
+
+## Simulation
+
+```{r}
+set.seed(245)
+simselangords <- genData(175, def) %>% 
+  mutate(across(.cols = c(age, PAhour), 
+                .fns = ~ as.integer(.)),
+         weight = BMI * (height^2), 
+         across(.cols = c(BMI, hba1c), 
+                .fns = ~ round(., 1)), 
+         across(.cols = c(height, weight), 
+                .fns = ~ round(., 2)), 
+         district = c(rep(1, 35), 
+                    rep(3, 35), 
+                    rep(4, 35), 
+                    rep(5, 35), 
+                    rep(6, 35))) %>% 
+  select(id, district, everything(), -BMI)
+
+simselangords
+```
+
+
+```{r}
+simselangords %>%
+  mutate(agegp = cut(age, 
+                     breaks = c(19, 29, 39, 49, 59), 
+                     labels = c("20-29", "30-39", "40-49", "50-59")))
+ 
+
+
+```
+
