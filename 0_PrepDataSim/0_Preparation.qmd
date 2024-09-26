@@ -200,7 +200,8 @@ w1_tab <- selpop4dist %>%
   group_by(district) %>% 
   summarise(pop_d = sum(pop_ps, na.rm = TRUE)) %>% 
   mutate(sampnum_d = 40, 
-         W1 = pop_d/sampnum_d)
+         W1 = 1, 
+         W2 = pop_d/sampnum_d)
 
 w1_tab
 ```
@@ -229,7 +230,7 @@ PS_tab <- simselangords3 %>%
                    "gender", 
                    "ethnicity", 
                    "agegp" = "age2")) %>% 
-  mutate(PS = sqrt(pop_ps/totresp_ps)) %>% 
+  mutate(PS = pop_ps/totresp_ps) %>% 
   select(-c(state, date))
 
 PS_tab
@@ -254,6 +255,12 @@ simselangords4 <- simselangords3 %>%
                       pop_ps = "population for PS", 
                       PS = "Post-stratification", 
                       final_weight = "Final Sampling Weight")
+
+simselangords4 %>% 
+  summarise(totalw2 = sum(W2))
+
+selpop4dist %>% 
+  summarise(totalpop = sum(pop_ps))
 
 simselangords4 %>% 
   filter(district == "Gombak", 
@@ -282,5 +289,9 @@ simselds
 
 ```{r}
 write_sav(simselds, "20240926_SelSimData.sav")
+```
+
+```{r}
+
 ```
 
