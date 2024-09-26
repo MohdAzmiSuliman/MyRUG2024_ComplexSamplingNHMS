@@ -47,7 +47,7 @@ Data source: OpenDOSM
 ```{r}
 pop_dist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
 
-pop_dist %>% 
+selpop4dist <- pop_dist %>% 
   filter(state == "Selangor", 
          district %in% c("Kuala Langat", "Kuala Selangor", "Sabak Bernam", 
                          "Petaling", "Gombak"), 
@@ -56,22 +56,20 @@ pop_dist %>%
          age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
                     "50-54", "55-59"), 
          ethnicity %in% c("bumi_malay", "chinese", "indian")) %>% 
-  mutate(age2 = case_when(
-    age %in% c("20-24", "24-29") ~ "20-29",
-    age %in% c("30-34", "35-39") ~ "30-39",
-    age %in% c("40-44", "45-49") ~ "40-49",
-    age %in% c("50-54", "55-59") ~ "50-59"
-  )) %>% 
+  mutate(age2 = case_when(age %in% c("20-24", "24-29") ~ "20-29", 
+                          age %in% c("30-34", "35-39") ~ "30-39", 
+                          age %in% c("40-44", "45-49") ~ "40-49", 
+                          age %in% c("50-54", "55-59") ~ "50-59"
+                          ), 
+         popk = population*1000) %>% 
   group_by(state, district, date, sex, ethnicity, age2) %>% 
-  summarise(population = sum(population, na.rm = TRUE)) %>% 
+  summarise(popk = sum(popk, na.rm = TRUE)) %>% 
   ungroup()
+
+selpop4dist
 ```
 
-```{r}
 
-
-
-```
 
 
 # Responden Data Simulation
@@ -95,32 +93,62 @@ def <- defData(varname = "gender", dist = "binary", formula = 0.5,
 
 ```{r}
 set.seed(245)
-simselangords <- genData(175, def) %>% 
-  mutate(across(.cols = c(age, PAhour), 
-                .fns = ~ as.integer(.)),
-         weight = BMI * (height^2), 
-         across(.cols = c(BMI, hba1c), 
+simselangords0 <- genData(175, def) %>% 
+  mutate(weight = BMI * (height^2), 
+         across(.cols = c(hba1c, weight), 
                 .fns = ~ round(., 1)), 
-         across(.cols = c(height, weight), 
+         across(.cols = c(height), 
                 .fns = ~ round(., 2)), 
          district = c(rep(1, 35), 
                     rep(3, 35), 
                     rep(4, 35), 
                     rep(5, 35), 
-                    rep(6, 35))) %>% 
+                    rep(6, 35)), 
+         across(.cols = c(district, age, PAhour), 
+                .fns = ~ as.integer(.))) %>% 
+  relocate(weight, .after = height) %>% 
   select(id, district, everything(), -BMI)
 
-simselangords
+simselangords0
 ```
-
 
 ```{r}
-simselangords %>%
+simselangords <- simselangords0 %>%
   mutate(agegp = cut(age, 
                      breaks = c(19, 29, 39, 49, 59), 
-                     labels = c("20-29", "30-39", "40-49", "50-59")))
- 
+                     labels = c("1", "2", "3", "4")), 
+         agegp = as.integer(agegp), 
+         .after = age) %>% 
+  set_variable_labels(district = "District", 
+                      gender = "Gender", 
+                      age = "Age (year)", 
+                      agegp = "Age Group", 
+                      ethnicity = "Ethnicity", 
+                      height = "Height (m)", 
+                      weight = "Weight (kg)", 
+                      PAhour = "Physical Activity (hour/day)", 
+                      hba1c = "HbA1c (%)") %>% 
+  set_value_labels(district = c("Gombak" = 1, 
+                                "Kuala Langat" = 3, 
+                                "Kuala Selangor" = 4, 
+                                "Petaling" = 5, 
+                                "Sabak Bernam" = 6), 
+                   gender = c("Male" = 0, 
+                              "Female" = 1), 
+                   agegp = c("20-29" = 1, 
+                             "30-39" = 2, 
+                             "40-49" = 3, 
+                             "50-59" = 4), 
+                   ethnicity = c("Malay" = 1, 
+                                 "Chinese" = 2, 
+                                 "Indian" = 3))
 
+simselangords1 <- simselangords %>% 
+  to_factor()
 
+simselangords1
 ```
+
+
+
 
