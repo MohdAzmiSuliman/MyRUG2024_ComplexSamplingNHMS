@@ -1,0 +1,132 @@
+---
+title: "Draft Example"
+date: last-modified
+date-format: "dddd, DD/MM/YYYY"
+format: 
+  html:
+    theme: flatly
+    code-fold: true
+    code-copy: hover
+    code-overflow: wrap
+    code-tools: true
+    df-print: paged
+    default-image-extension: svg
+    embed-resources: true
+    page-layout: full
+    reference-location: margin
+    title-block-banner: true
+    title-block-style: default
+    fontsize: .9em
+    monofont: 'Fira Code'
+execute: 
+  echo: true
+  warning: true
+number-sections: true
+toc: true
+fig-dpi: 320
+dpi: 320
+---
+
+# Setup
+
+```{r}
+#| label: setup
+
+options(scipen = 999)
+pacman::p_load(tidyverse, haven, labelled, arrow, simstudy, survey)
+
+pop_dist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
+
+selsimds0 <- read_sav("20240926_SelSimData.sav")
+selsimds <- selsimds0 %>% 
+  to_factor()
+  
+```
+
+
+# 4 District Population
+
+```{r}
+selpop4dist <- pop_dist %>% 
+  filter(state == "Selangor", 
+         district %in% c("Kuala Langat", "Kuala Selangor", "Sabak Bernam", 
+                         "Petaling", "Gombak"), 
+         date == dmy("01/01/2023"), 
+         sex != "both", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
+                    "50-54", "55-59"), 
+         ethnicity %in% c("bumi_malay", "chinese", "indian")) %>% 
+  mutate(gender = case_when(sex == "male" ~ "Male", 
+                            sex == "female" ~ "Female"), 
+         age2 = case_when(age %in% c("20-24", "24-29") ~ "20-29", 
+                          age %in% c("30-34", "35-39") ~ "30-39", 
+                          age %in% c("40-44", "45-49") ~ "40-49", 
+                          age %in% c("50-54", "55-59") ~ "50-59"), 
+         ethnicity = fct_recode(ethnicity, 
+                                "Malay" = "bumi_malay", 
+                                "Chinese" = "chinese", 
+                                "Indian" = "indian"), 
+         popk = population*1000) %>% 
+  group_by(state, district, date, gender, ethnicity, age2) %>% 
+  summarise(pop_ps = sum(popk, na.rm = TRUE)) %>% 
+  ungroup()
+
+selpop4dist
+
+selpop4dist %>% 
+  group_by(district) %>% 
+  summarise(pop_d = sum(pop_ps, na.rm = TRUE))
+```
+
+# Sample Population
+
+```{r}
+selsimds1 <- selsimds %>% 
+  mutate(all = 1, .before = everything())
+
+selsimds1
+```
+
+## Complex Sampling Design
+
+```{r}
+selsimdsg_wtd <- svydesign(id = ~1, 
+                       strata = ~district, 
+                       weights = ~final_weight, 
+                       data = selsimds1, 
+                       nest = T)
+
+selsimdsg_uwt <- svydesign(id = ~1, 
+                           strata = ~district, 
+                           weights = ~1, 
+                           data = selsimds1, 
+                           nest = T)
+```
+
+## Overall Estimated Population
+
+```{r}
+selsimpop <- svyby(~all, 
+                   by = ~gender+agegp, 
+                   design = selsimdsg_wtd, 
+                   FUN = svytotal, 
+                   na.rm = T) %>% 
+  arrange(desc(gender), agegp)
+
+
+selsimpop
+```
+
+
+```{r}
+selpop4dist %>% 
+  group_by(gender, age2) %>% 
+  summarise(pop_ps = sum(pop_ps, na.rm = TRUE))
+
+selsimds1 %>% 
+  group_by(gender, agegp) %>% 
+  summarise(unwt = n(), 
+            nwt = sum(final_weight, na.rm = TRUE)) %>% 
+  arrange(desc(gender), agegp)
+```
+
