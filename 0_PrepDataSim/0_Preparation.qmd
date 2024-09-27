@@ -248,29 +248,18 @@ simselangords4 <- simselangords3 %>%
                 .fns = ~ as.integer(.))) %>%  
   set_variable_labels(pop_d = "population for district",
                       sampnum_d = "total sample size for district", 
-                      W1 = "Inverse Sampling Probability ", 
+                      W1 = "Inverse Sampling Probability", 
                       totresp_d = "total respoondent for district", 
                       NRF = "Non-response Adjustment", 
                       totresp_ps = "total respondent for PS - district, age, gender, agegp", 
                       pop_ps = "population for PS", 
                       PS = "Post-stratification", 
-                      final_weight = "Final Sampling Weight")
-
-simselangords4 %>% 
-  summarise(totalw2 = sum(W2))
-
-selpop4dist %>% 
-  summarise(totalpop = sum(pop_ps))
-
-simselangords4 %>% 
-  filter(district == "Gombak", 
-         gender == "Male", 
-         agegp == "20-29", 
-         ethnicity == "Malay")
+                      final_weight = "Final Sampling Weight") %>% 
+  select(-agegp)
 ```
 
 ```{r}
-writexl::write_xlsx(simselangords4, "20240926_SelSimData.xlsx")
+#writexl::write_xlsx(simselangords4, "20240926_SelSimData.xlsx")
 ```
 
 
@@ -288,7 +277,7 @@ simselds
 ```
 
 ```{r}
-write_sav(simselds, "20240926_SelSimData.sav")
+#write_sav(simselds, "20240926_SelSimData.sav")
 ```
 
 ```{r}
