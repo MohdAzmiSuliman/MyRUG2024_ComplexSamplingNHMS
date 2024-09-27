@@ -93,7 +93,7 @@ def <- defData(varname = "gender", dist = "binary", formula = 0.5,
   defData(varname = "ethnicity", dist = "categorical", 
           formula = "0.57;0.29;0.14") %>% 
   defData(varname = "BMI", dist = "normal", formula = 26, variance = 2.6^2) %>% 
-  defData(varname = "height", dist = "normal", formula = 1.65, variance = 0.08^2) %>% 
+  defData(varname = "height", dist = "normal", formula = 165, variance = 5) %>% 
   defData(varname = "PAhour", dist = "uniform", formula = "2;6") %>% 
   defData(varname = "hba1c", dist = "normal", variance = 1.4^2, 
           formula = "2.4 + 0.05 * age + 0.1 * BMI - 0.15 * PAhour")
@@ -106,7 +106,7 @@ Simulation
 ```{r}
 set.seed(245)
 simselangords0 <- genData(200, def) %>% 
-  mutate(weight = BMI * (height^2), 
+  mutate(weight = BMI * (height/100)^2, 
          across(.cols = c(hba1c, weight), 
                 .fns = ~ round(., 1)), 
          across(.cols = c(height), 
@@ -116,7 +116,7 @@ simselangords0 <- genData(200, def) %>%
                     rep(4, 40), 
                     rep(5, 40), 
                     rep(6, 40)), 
-         across(.cols = c(district, age, PAhour), 
+         across(.cols = c(district, age, height, PAhour), 
                 .fns = ~ as.integer(.))) %>% 
   relocate(weight, .after = height) %>% 
   select(id, district, everything(), -BMI)
@@ -138,7 +138,7 @@ simselangords1 <- simselangords0 %>%
                       age = "Age (year)", 
                       agegp = "Age Group", 
                       ethnicity = "Ethnicity", 
-                      height = "Height (m)", 
+                      height = "Height (cm)", 
                       weight = "Weight (kg)", 
                       PAhour = "Physical Activity (hour/day)", 
                       hba1c = "HbA1c (%)") %>% 
@@ -259,7 +259,7 @@ simselangords4 <- simselangords3 %>%
 ```
 
 ```{r}
-#writexl::write_xlsx(simselangords4, "20240926_SelSimData.xlsx")
+writexl::write_xlsx(simselangords4, "20240926_SelSimData.xlsx")
 ```
 
 
@@ -271,13 +271,14 @@ weight <- simselangords4 %>%
   select(id, pop_d:final_weight)
 
 simselds <- simselangords2 %>% 
-  full_join(weight, by = "id")
+  full_join(weight, by = "id") %>% 
+  select(-agegp)
 
 simselds
 ```
 
 ```{r}
-#write_sav(simselds, "20240926_SelSimData.sav")
+write_sav(simselds, "20240926_SelSimData.sav")
 ```
 
 ```{r}
