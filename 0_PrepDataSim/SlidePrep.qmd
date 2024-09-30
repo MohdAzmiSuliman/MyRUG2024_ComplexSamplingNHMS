@@ -1,0 +1,44 @@
+---
+title: "Slide Prep"
+date: last-modified
+date-format: "dddd, DD/MM/YYYY"
+format: 
+  html:
+    theme: flatly
+    code-fold: true
+    code-copy: hover
+    code-overflow: wrap
+    code-tools: true
+    df-print: paged
+    default-image-extension: svg
+    embed-resources: true
+    page-layout: full
+    reference-location: margin
+    title-block-banner: true
+    title-block-style: default
+    fontsize: .9em
+    monofont: 'Fira Code'
+execute: 
+  echo: true
+  warning: true
+number-sections: true
+toc: true
+fig-dpi: 320
+dpi: 320
+---
+
+# Setup
+
+```{r}
+#| label: setup
+
+options(scipen = 999)
+pacman::p_load(tidyverse, haven, labelled, arrow, simstudy, survey)
+
+pop_dist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
+
+selsimds0 <- read_sav("20240926_SelSimData.sav")
+selsimds <- selsimds0 %>% 
+  to_factor()
+  
+```

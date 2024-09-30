@@ -259,7 +259,7 @@ simselangords4 <- simselangords3 %>%
 ```
 
 ```{r}
-writexl::write_xlsx(simselangords4, "20240926_SelSimData.xlsx")
+#writexl::write_xlsx(simselangords4, "20240926_SelSimData.xlsx")
 ```
 
 
@@ -278,10 +278,40 @@ simselds
 ```
 
 ```{r}
-write_sav(simselds, "20240926_SelSimData.sav")
+#write_sav(simselds, "20240926_SelSimData.sav")
 ```
 
 ```{r}
+
+```
+
+# Clean Dataset
+
+```{r}
+simselds %>% 
+  mutate(agegp = cut(age, 
+                     breaks = c(19, 29, 39, 49, 59), 
+                     labels = c("1", "2", "3", "4")), 
+         agegp = as.integer(agegp), 
+         .after = age) %>% 
+  mutate(bmi = round(weight/(height/100)^2, 1), 
+         .after = weight) %>% 
+  mutate(dm_status = cut(hba1c, 
+                         breaks = c(0, 6.5, 20), 
+                         labels = c("1", "2")), 
+         dm_status = as.integer(dm_status), 
+         .after = hba1c) %>%
+  set_variable_labels(agegp = "Age Group", 
+                      bmi = "BMI (kg/m2)", 
+                      dm_status = "Diabetes Status (HbA1c)") %>% 
+  set_value_labels(agegp = c("20-29" = 1, 
+                             "30-39" = 2, 
+                             "40-49" = 3, 
+                             "50-59" = 4), 
+                   dm_status = c("Normal" = 1, 
+                                 "Diabetes" = 2)) #%>% 
+  #write_sav("20240926_SelSimDataClean.sav")
+
 
 ```
 

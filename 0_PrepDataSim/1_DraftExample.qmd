@@ -35,13 +35,55 @@ dpi: 320
 options(scipen = 999)
 pacman::p_load(tidyverse, haven, labelled, arrow, simstudy, survey)
 
-pop_dist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
+pop_mydist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
 
 selsimds0 <- read_sav("20240926_SelSimData.sav")
 selsimds <- selsimds0 %>% 
   to_factor()
   
 ```
+
+# Malaysia Population
+
+- all state, all district, 2023, age 20-59, malay, chinese & indian
+
+```{r}
+pop_my23 <- pop_mydist %>% 
+  filter(date == dmy("01/01/23"), 
+         sex != "both", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
+                    "50-54", "55-59"), 
+         ethnicity == "overall") %>% 
+  mutate(population = population*10)
+
+pop_simdist <- pop_my23 %>% 
+  group_by(state, district) %>% 
+  summarise(population = sum(population))
+
+sim_people <- tibble(district = rep(pop_simdist$district, 
+                                    pop_simdist$population)) %>% 
+  left_join(select(pop_simdist, state, district) %>% 
+              distinct(district, .keep_all = T), 
+            by = "district") %>% 
+  relocate(state, .before = district)
+
+sim_people %>% 
+  group_by(state, district) %>% 
+  summarise(population = n(), .groups = "drop")
+
+sim_people %>% 
+  slice_sample(n = 100) %>% 
+  group_by(state, district) %>% 
+  summarise(population = n(), .groups = "drop") %>% 
+  count(state) %>% 
+  left_join(., 
+            count(sim_people, state, district) %>% 
+              count(state), 
+            by = "state") %>% 
+  mutate(perc = round(n.x/n.y*100, 1))
+
+```
+
 
 
 # 4 District Population
