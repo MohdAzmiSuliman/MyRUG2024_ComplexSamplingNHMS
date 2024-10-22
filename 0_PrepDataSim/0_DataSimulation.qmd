@@ -46,38 +46,12 @@ pacman::p_load(tidyverse, haven, labelled, arrow, simstudy)
 Data source: OpenDOSM
 
 ```{r}
-pop_dist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
-
-selpop4dist <- pop_dist %>% 
-  filter(state == "Selangor", 
-         district %in% c("Kuala Langat", "Kuala Selangor", "Sabak Bernam", 
-                         "Petaling", "Gombak"), 
-         date == dmy("01/01/2023"), 
-         sex != "both", 
-         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
-                    "50-54", "55-59"), 
-         ethnicity %in% c("bumi_malay", "chinese", "indian")) %>% 
-  mutate(gender = case_when(sex == "male" ~ "Male", 
-                            sex == "female" ~ "Female"), 
-         age2 = case_when(age %in% c("20-24", "24-29") ~ "20-29", 
-                          age %in% c("30-34", "35-39") ~ "30-39", 
-                          age %in% c("40-44", "45-49") ~ "40-49", 
-                          age %in% c("50-54", "55-59") ~ "50-59"), 
-         ethnicity = fct_recode(ethnicity, 
-                                "Malay" = "bumi_malay", 
-                                "Chinese" = "chinese", 
-                                "Indian" = "indian"), 
-         popk = population*1000) %>% 
-  group_by(state, district, date, gender, ethnicity, age2) %>% 
-  summarise(pop_ps = sum(popk, na.rm = TRUE)) %>% 
-  ungroup()
-
-selpop4dist
-
-selpop4dist %>% 
-  group_by(district) %>% 
-  summarise(pop_d = sum(pop_ps, na.rm = TRUE))
-
+pop_mydist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet") %>% 
+  filter(date == dmy("01/01/23"), 
+         sex != "overall", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", 
+                    "45-49", "50-54", "55-59"), 
+         ethnicity %in% c("bumi_malay", "chinese", "indian"))
 
 selected_district <- read_rds("selected_district.rds") %>% 
   mutate(n = 1:10)
@@ -129,7 +103,8 @@ simnhmsds0 <- genData(400, def) %>%
                 .fns = ~ as.integer(.))) %>% 
   relocate(weight, .after = height) %>% 
   select(id, district, everything(), -BMI) %>% 
-  right_join(selected_district, 
+  right_join(selected_district %>% 
+               mutate(n = 1:10), 
             ., 
             by = c("n" = "district")) %>% 
   select(id, zone:district, gender:age, agegp, everything(), -n)

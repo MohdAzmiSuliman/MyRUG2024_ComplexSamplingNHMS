@@ -225,39 +225,53 @@ sim_pop %>%
 -   NHMS data was confidential, and I was not allow to share the data.
 -   Public (or researcher) can applied the data via NIH Data Repository thru https://nihdars.nih.gov.my/
 -   However, for this session purpose, I will simulate simple data to demonstrate complex sampling design.
--   Population data will be used from 2022 Malaysia population data from opendosm
+-   Population data will be used from 2023 Malaysia population data from opendosm
 https://open.dosm.gov.my/data-catalogue/population_district
 -   While disease data will be simulate. 
 -   Please note that since the data is simulate, IT MUST NOT USE FOR REAL WORLD PUPROSE / REFERENCE
 
 ## Simulating Population
 
+-   Imagine we want to collect data, similar to NHMS, on cholesterol level among Malaysian adults.
+-   the target population is between the 3 major ethnicities - Malay, Chinese and Indian, both male and female, age between 20 to 59 years old.
+-   Based on opendosm dataset, there were 160 district (Administrative District) across 16 states in Malaysia (13 states + 3 federal territories)
+-   In 2023, the population that cover the target population was 12.8 million
+
 ```{r}
-# If not already installed, do: install.packages("arrow")
-library(arrow)
 pop_mydist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet") %>% 
   filter(date == dmy("01/01/23"), 
-         sex != "both", 
-         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
-                    "50-54", "55-59"), 
+         sex != "overall", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", 
+                    "45-49", "50-54", "55-59"), 
          ethnicity %in% c("bumi_malay", "chinese", "indian"))
+
+head(pop_mydist)
 ```
 
 
 ```{r}
 pop_mydist %>% 
-  count(state, district) %>% 
-  count(state)
+  summarise(population = sum(population*1000)) %>% 
+  mutate(population = scales::label_comma()(population))
 
 ```
 
 
-## Selecting District
+
+## Simulating Population
+
+
+
+-   The 16 states were group into 5 major zones - namely *Utara*, *Selatan*, *Timur*, *Tengah* and *Borneo*.
+-   We will select 2 district (randomly) from each zone for our study.
+-   The selected district is as below
+
 
 ```{r}
 #| eval: false
 
-pop_mydist %>% 
+set.seed(121)
+selected_district <- pop_mydist %>% 
   distinct(state, district) %>% 
   mutate(zone = case_when(state %in% c("Johor", "Melaka", 
                                       "Negeri Sembilan") ~ "Selatan", 
@@ -271,13 +285,178 @@ pop_mydist %>%
                                       "W.P. Labuan") ~ "Borneo")) %>% 
   group_by(zone) %>% 
   slice_sample(n = 2) %>% 
+  ungroup() %>% 
   relocate(zone, .before = 1)
+
+selected_district 
+
 ```
 
 ```{r}
-#| echo: false
-
 selected_district <- read_rds("0_PrepDataSim/selected_district.rds")
-selected_district
+selected_district 
 ```
 
+## Simulating Participant
+
+-   From each 10 district, we will sample 40 participants.
+-   Simulation using simstudy package (not in this scope)
+
+```{r}
+#| eval: false
+
+library(simstudy)
+
+def <- defData(varname = "gender", dist = "binary", formula = 0.5, 
+               link = "identity") %>% 
+  defData(varname = "age", dist = "uniform", formula = "20;59") %>% 
+  defData(varname = "ethnicity", dist = "categorical", 
+          formula = "0.57;0.29;0.14") %>% 
+  defData(varname = "BMI", dist = "normal", formula = 26, variance = 2.6^2) %>% 
+  defData(varname = "height", dist = "normal", formula = 165, variance = 5) %>% 
+  defData(varname = "PAhour", dist = "uniform", formula = "2;6") %>% 
+  defData(varname = "hba1c", dist = "normal", variance = 1.4^2, 
+          formula = "2.4 + 0.05 * age + 0.1 * BMI - 0.15 * PAhour")
+
+set.seed(121)
+simnhmsds0 <- genData(400, def) %>% 
+  mutate(gender = case_when(gender == 0 ~ "Male", 
+                            gender == 1 ~ "Female"), 
+         agegp = cut(age, 
+                     breaks = c(19, 29, 39, 49, 59), 
+                     labels = c("20-29", "30-39", "40-49", "50-59")), 
+         ethnicity = case_when(ethnicity == 1 ~ "Malay", 
+                               ethnicity == 2 ~ "Chinese", 
+                               ethnicity == 3 ~ "Indian"), 
+         weight = BMI * (height/100)^2, 
+         across(.cols = c(hba1c, weight), 
+                .fns = ~ round(., 1)), 
+         across(.cols = c(height), 
+                .fns = ~ round(., 2)), 
+         district = rep(1:10, each = 40), 
+         across(.cols = c(district, age, height, PAhour), 
+                .fns = ~ as.integer(.))) %>% 
+  relocate(weight, .after = height) %>% 
+  select(id, district, everything(), -BMI) %>% 
+  right_join(selected_district %>% mutate(n = 1:10), ., 
+            by = c("n" = "district")) %>% 
+  select(id, zone:district, gender:age, agegp, everything(), -n)
+```
+
+```{r}
+head(simnhmsds0)
+```
+
+
+## Remove "Non-response"
+
+-   In our simulation, assume response rate differ by zone, but same for the zone
+    -   "Utara" = 36/40
+    -   "Selatan" = 34/40 
+    -   "Timur" = 38/40
+    -   "Tengah" = 32/40
+    -   "Borneo" = 38/40
+
+```{r}
+sample_sizes <- list("Utara" = 36, "Selatan" = 34, 
+                     "Timur" = 38, "Tengah" = 32, "Borneo" = 38)
+
+simnhmsds_split <- simnhmsds0 %>%
+  group_split(zone, .keep = TRUE)
+
+set.seed(121)
+simnhmsds_final <- map(simnhmsds_split, function(data) {
+  zone <- unique(data$zone)
+  data %>%
+    group_by(district) %>%
+    slice_sample(n = sample_sizes[[zone]]) %>%
+    ungroup()
+}) %>%
+  bind_rows() %>% 
+  arrange(id)
+
+simnhmsds_final %>% 
+  count(district)
+```
+
+
+
+# Calculate Sampling Weight
+
+
+## Preparing Sampling Weight
+
+-   Sampling weight as W1, F and PS. In our simulation, 
+    -   W1 is the inverse probability of selecting the district
+    -   F is the non-response adjustment factor
+    -   PS is the post-stratification adjustment factor calculated
+
+## District Selection
+
+-   The selected district is as below
+-   The probability of selecting district, is number of selected district divide by total district, in this case, per zone.
+-   The weight is inverse probability
+-   Thus the weight for district selection, for example for borneo zone, is 68 (total district in borneo), divide by 2 (selected district in borneo)
+
+```{r}
+pop_mydist %>% 
+  distinct(state, district) %>% 
+  mutate(zone = case_when(state %in% c("Johor", "Melaka", 
+                                      "Negeri Sembilan") ~ "Selatan", 
+                         state %in% c("Kedah", "Perak", 
+                                      "Perlis", "Pulau Pinang") ~ "Utara", 
+                         state %in% c("Kelantan", "Pahang", 
+                                      "Terengganu") ~ "Timur", 
+                         state %in% c("Selangor", "W.P. Kuala Lumpur", 
+                                      "W.P. Putrajaya") ~ "Tengah", 
+                         state %in% c("Sabah", "Sarawak", 
+                                      "W.P. Labuan") ~ "Borneo")) %>% 
+  count(zone) %>% 
+  rename(total_district = n) %>% 
+  mutate(selected_district = 2, 
+         f1 = selected_district / total_district, 
+         W1 = 1/f1)
+```
+
+## Non-response Weight
+
+-   The non-response adjustment factor (F) is calculated as the inverse of the response rate.
+-   In each district, we will sample 40 respondents
+-   In our simulation, assume response rate differ by zone, but same for the zone
+    -   "Utara" = 36/40
+    -   "Selatan" = 34/40 
+    -   "Timur" = 38/40
+    -   "Tengah" = 32/40
+    -   "Borneo" = 38/40
+-   Thus the weight for example for borneo is 40 (total sample) divide by 38 (success respondent)
+
+```{r}
+selected_district %>% 
+  mutate(fnr = case_when(zone == "Utara" ~ 36/40, 
+                       zone == "Selatan" ~ 34/40, 
+                       zone == "Timur" ~ 38/40, 
+                       zone == "Tengah" ~ 32/40, 
+                       zone == "Borneo" ~ 38/40), 
+         F = 1/fnr)
+```
+
+
+## Post-stratification Weight
+
+-   Post-stratification adjustment factor (PS) is a bit tricky. 
+-   The idea is we want each sample will represent the population, by it stratification type.
+-   For example, in this simulation, we will post-strat to age group, gender and ethnicity.
+-   For that, we need to calculate, for each age group, gender and ethnicity, how many sample in our sample, and how many population is in the population.
+
+```{r}
+pop_mydist %>% 
+  mutate(agegp = case_when(age %in% c("20-24", "24-29") ~ "20-29", 
+                          age %in% c("30-34", "35-39") ~ "30-39", 
+                          age %in% c("40-44", "45-49") ~ "40-49", 
+                          age %in% c("50-54", "55-59") ~ "50-59")) %>% 
+  group_by(sex, agegp, ethnicity) %>% 
+  summarise(population = sum(population))
+```
+
+
+## Selecting District
