@@ -1,0 +1,197 @@
+---
+title: "Complex Sampling Design in National Health and Morbidity Survey (NHMS)"
+subtitle: "Survey Package in R"
+format: 
+  clean-revealjs: 
+    slide-number: true
+    lightbox: true
+    footer: "Complex Sampling Design in NHMS"
+author:
+  - name: Mohd Azmi Bin Suliman
+    orcid: 0000-0002-2125-3811
+    email: azmi.suliman@moh.gov.my
+    affiliations: Pusat Penyelidikan Penyakit Tak Berjangkit, Institut Kesihatan Umum
+date: 2024-10-27
+date-format: "dddd, DD MMMM YYYY"
+embed-resources: true
+---
+
+# National Health and Morbidity Survey (NHMS)
+
+```{r}
+#| label: setup
+#| echo: false
+
+pacman::p_load(tidyverse)
+
+```
+
+```{css}
+#| echo: false
+
+code.sourceCode {
+  font-size: 1.2em;
+}
+```
+
+## National Health and Morbidity Survey (NHMS)
+
+1.  **Nationwide Health Survey**: Conducted by Ministry of Health Malaysia to assess health status and healthcare needs of Malaysian population.
+
+2.  **Conducted Regularly**: Since 1986, initially 10 years gap, then 5 years, then yearly with different themes.
+
+3.  **Focus on Key Health Indicators**: e.g. NCDs, CDs, healthcare demands
+
+4.  **Representative Population Sampling**: Represent National, with various age groups and ethnicities.
+
+5.  **National Health Policy**: Findings use for national health policies and initiatives.
+
+::: notes
+1.  **Nationwide Health Survey**: The National Health and Morbidity Survey (NHMS) is a nationwide survey conducted by the Ministry of Health Malaysia to assess the health status and healthcare needs of the Malaysian population.
+
+2.  **Conducted Regularly**: NHMS has been conducted periodically since 1986, providing essential data for public health planning, policy-making, and monitoring health trends over time.
+
+3.  **Focus on Key Health Indicators**: NHMS covers a wide range of topics, including non-communicable diseases (NCDs), infectious diseases, lifestyle factors, mental health, and healthcare utilization.
+
+4.  **Representative Population Sampling**: NHMS uses advanced sampling techniques to ensure accurate representation of the Malaysian population across different states, age groups, ethnicities, and socioeconomic backgrounds.
+
+5.  **National Health Policy**: The findings from NHMS are crucial for developing national health policies and initiatives aimed at improving the overall health and well-being of Malaysians.
+:::
+
+## Reports can be accessed from IKU's website
+
+![](Images/NHMS_IKUPage.png)
+
+# Census vs Survey
+
+## Census vs Survey
+
+-   **Census**: Collects data from every individual in the population.
+    -   Time-consuming, expensive, and not feasible for large populations.
+    -   e.g. DOSM conducts Population and Housing Census every 10 years.
+
+. . .
+
+-   **Survey**: Collects data from a sample of the population.
+    -   More cost-effective, less time-consuming
+    -   But does it to represent the entire population?
+
+## Why Not Simple Random Sampling (SRS)?
+
+-   **Simple Random Sampling (SRS)**: Each individual theoretically has an equal chance of being selected.
+    -   While easy to implement, it's often impractical for large, diverse populations.
+    -   SRS assumes homogeneity, which rarely exists in real-world populations, leading to potential biases in representation.
+
+. . .
+
+-   **Challenges of SRS**:
+    -   Requires a **complete and up-to-date list** of the entire population to ensure equal selection chances.
+    -   In practice, even DOSM do not have complete population lists, making true random sampling difficult, if not impossible.
+
+# Simple Randon Survey (SRS)
+
+## The Risk of Underrepresentation
+
+-   In SRS, mathematically, the sample may not adequately represent the population, especially for minority groups.
+-   On the next slide, we will simulate how SRS can affect representation in a hypothetical population.
+
+## Hypothetical Population Composition
+
+-   Imagine a population of 1,000 individuals:
+    -   46% are Malay
+    -   33% are Chinese
+    -   25% are Indian
+    -   1% are Borneo
+
+```{r}
+#| echo: true
+
+sim_pop <- tibble(ethnicity = c(rep("Malay", 460), 
+                                rep("Chinese", 330), 
+                                rep("Indian", 250), 
+                                rep("Borneo", 10)))
+
+sim_pop %>% 
+  count(ethnicity) %>% 
+  arrange(desc(n))
+```
+
+## SRS Simulation
+
+-   If we take a simple random sample (SRS) of 50 people from this population, will anyone from the **Borneo** group be selected?
+
+```{r}
+#| echo: true
+#| eval: false
+
+sim_pop %>% 
+  sample_n(50) %>% 
+  count(ethnicity)
+```
+
+. . .
+
+```{r}
+sim_pop %>% 
+  sample_n(50) %>% 
+  count(ethnicity)
+```
+
+. . .
+
+-   Let's try it again:
+
+```{r}
+sim_pop %>% 
+  sample_n(50) %>% 
+  count(ethnicity)
+```
+
+## Key Takeaways from the Simulation
+
+-   And One More Time
+
+```{r}
+sim_pop %>% 
+  sample_n(50) %>% 
+  count(ethnicity)
+```
+
+. . .
+
+-   As shown in this short simulation, **Simple Random Sampling** may or may not select individuals from the **Borneo** group, which makes up only 1% of the population.
+-   To ensure that the **Borneo** group is properly represented in the sample, we may need to use **stratified sampling** to guarantee their inclusion.
+
+# Complex Sampling Design
+
+## NHMS & Complex Sampling Design
+
+-   To ensure national representativeness, NHMS uses complex sampling design.
+    -   Stratification - 2 Stage Stratification, State & Urban/Rural
+    -   Clustering (DOSM's enumeration block)
+
+. . .
+
+-   Sampling was done at 2 stages:
+    -   Primary Sampling Unit: Selection of Enumeration Blocks (EBs)
+    -   Secondary Sampling Units: Selection of Living Quarters (LQs) within EBs
+
+. . .
+
+-   EBs: Geographical areas in Malaysia divide by DOSM
+-   LQs: Households within EBs, approximately 80-120 LQs per EB
+
+
+## Complex Sampling Design
+
+-   These stratification and clustering however affect the sampling probability, and thus the estimation need to consider for this complex sampling design. 
+-   Therefore, each unit is assigned a weight to account for the probability of selection.
+
+
+## Sampling Weight in NHMS
+
+-   The sampling weight is calculated as follows:
+    -   W1 = the inverse probability of selecting the EBs
+    -   F = the non-response adjustment factor
+    -   PS = post-stratification adjustment factor calculated by state, gender and ethnicity
+    
