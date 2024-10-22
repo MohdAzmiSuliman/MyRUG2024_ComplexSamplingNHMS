@@ -1,0 +1,317 @@
+---
+title: "Background Planning"
+date: last-modified
+date-format: "dddd, DD/MM/YYYY"
+format: 
+  html:
+    theme: flatly
+    code-fold: true
+    code-copy: hover
+    code-overflow: wrap
+    code-tools: true
+    df-print: paged
+    default-image-extension: svg
+    embed-resources: true
+    page-layout: full
+    reference-location: margin
+    title-block-banner: true
+    title-block-style: default
+    fontsize: .9em
+    monofont: 'Fira Code'
+execute: 
+  echo: true
+  warning: true
+number-sections: true
+toc: true
+fig-dpi: 320
+dpi: 320
+---
+
+# Presentation Planning
+
+To do:
+
+- Background Population
+
+```{r}
+#| label: setup
+
+options(scipen = 999)
+pacman::p_load(tidyverse, haven, labelled, arrow, simstudy)
+```
+
+
+# Selangor Background Population
+
+Data source: OpenDOSM
+
+```{r}
+pop_dist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet")
+
+selpop4dist <- pop_dist %>% 
+  filter(state == "Selangor", 
+         district %in% c("Kuala Langat", "Kuala Selangor", "Sabak Bernam", 
+                         "Petaling", "Gombak"), 
+         date == dmy("01/01/2023"), 
+         sex != "both", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
+                    "50-54", "55-59"), 
+         ethnicity %in% c("bumi_malay", "chinese", "indian")) %>% 
+  mutate(gender = case_when(sex == "male" ~ "Male", 
+                            sex == "female" ~ "Female"), 
+         age2 = case_when(age %in% c("20-24", "24-29") ~ "20-29", 
+                          age %in% c("30-34", "35-39") ~ "30-39", 
+                          age %in% c("40-44", "45-49") ~ "40-49", 
+                          age %in% c("50-54", "55-59") ~ "50-59"), 
+         ethnicity = fct_recode(ethnicity, 
+                                "Malay" = "bumi_malay", 
+                                "Chinese" = "chinese", 
+                                "Indian" = "indian"), 
+         popk = population*1000) %>% 
+  group_by(state, district, date, gender, ethnicity, age2) %>% 
+  summarise(pop_ps = sum(popk, na.rm = TRUE)) %>% 
+  ungroup()
+
+selpop4dist
+
+selpop4dist %>% 
+  group_by(district) %>% 
+  summarise(pop_d = sum(pop_ps, na.rm = TRUE))
+```
+
+
+
+
+# Responden Data Simulation
+
+## Data Definition
+
+```{r}
+def <- defData(varname = "gender", dist = "binary", formula = 0.5, 
+               link = "identity") %>% 
+  defData(varname = "age", dist = "uniform", formula = "20;59") %>% 
+  defData(varname = "ethnicity", dist = "categorical", 
+          formula = "0.57;0.29;0.14") %>% 
+  defData(varname = "BMI", dist = "normal", formula = 26, variance = 2.6^2) %>% 
+  defData(varname = "height", dist = "normal", formula = 165, variance = 5) %>% 
+  defData(varname = "PAhour", dist = "uniform", formula = "2;6") %>% 
+  defData(varname = "hba1c", dist = "normal", variance = 1.4^2, 
+          formula = "2.4 + 0.05 * age + 0.1 * BMI - 0.15 * PAhour")
+```
+
+## Simulation
+
+Simulation
+
+```{r}
+set.seed(245)
+simselangords0 <- genData(400, def) %>% 
+  mutate(weight = BMI * (height/100)^2, 
+         across(.cols = c(hba1c, weight), 
+                .fns = ~ round(., 1)), 
+         across(.cols = c(height), 
+                .fns = ~ round(., 2)), 
+         district = c(rep(1, 40), 
+                    rep(3, 40), 
+                    rep(4, 40), 
+                    rep(5, 40), 
+                    rep(6, 40)), 
+         across(.cols = c(district, age, height, PAhour), 
+                .fns = ~ as.integer(.))) %>% 
+  relocate(weight, .after = height) %>% 
+  select(id, district, everything(), -BMI)
+
+simselangords0
+```
+
+Full Response
+
+```{r}
+simselangords1 <- simselangords0 %>%
+  mutate(agegp = cut(age, 
+                     breaks = c(19, 29, 39, 49, 59), 
+                     labels = c("1", "2", "3", "4")), 
+         agegp = as.integer(agegp), 
+         .after = age) %>% 
+  set_variable_labels(district = "District", 
+                      gender = "Gender", 
+                      age = "Age (year)", 
+                      agegp = "Age Group", 
+                      ethnicity = "Ethnicity", 
+                      height = "Height (cm)", 
+                      weight = "Weight (kg)", 
+                      PAhour = "Physical Activity (hour/day)", 
+                      hba1c = "HbA1c (%)") %>% 
+  set_value_labels(district = c("Gombak" = 1, 
+                                "Kuala Langat" = 3, 
+                                "Kuala Selangor" = 4, 
+                                "Petaling" = 5, 
+                                "Sabak Bernam" = 6), 
+                   gender = c("Male" = 0, 
+                              "Female" = 1), 
+                   agegp = c("20-29" = 1, 
+                             "30-39" = 2, 
+                             "40-49" = 3, 
+                             "50-59" = 4), 
+                   ethnicity = c("Malay" = 1, 
+                                 "Chinese" = 2, 
+                                 "Indian" = 3))
+```
+
+Remove "non-response"
+
+```{r}
+nested_simdistsel0 <- simselangords1 %>%
+  group_by(district) %>%
+  nest()
+
+sample_sizes <- list("1" = 30, "3" = 32, "4" = 32, "5" = 28, "6" = 36)
+
+nested_simdistsel1 <- nested_simdistsel0 %>%
+  mutate(sampled = map2(data, as.character(district), 
+                        ~ sample_n(.x, 
+                                   size = min(nrow(.x), 
+                                              sample_sizes[[.y]]))))
+
+simselangords2 <- nested_simdistsel1 %>%
+  select(district, sampled) %>%
+  unnest(cols = sampled) %>% 
+  ungroup() %>% 
+  select(id, everything()) %>% 
+  arrange(id)
+
+simselangords3 <- simselangords2 %>% 
+  to_factor()
+
+simselangords3
+```
+
+
+## Weight Calculation.
+
+sampling probability
+
+- 4 district selected,
+- in each district, 40 person sampled
+
+
+```{r}
+w1_tab <- selpop4dist %>% 
+  group_by(district) %>% 
+  summarise(pop_d = sum(pop_ps, na.rm = TRUE)) %>% 
+  mutate(sampnum_d = 40, 
+         W1 = 1, 
+         W2 = pop_d/sampnum_d)
+
+w1_tab
+```
+
+
+non response
+
+```{r}
+F_tab <- simselangords3 %>% 
+  group_by(district) %>%
+  summarise(totresp_d = n(), .groups = "drop") %>%
+  mutate(sampnum_d = 40, 
+         NRF = sampnum_d / totresp_d)
+
+F_tab
+```
+
+post-strat
+
+```{r}
+PS_tab <- simselangords3 %>%
+  group_by(district, gender, ethnicity, agegp) %>%
+  summarise(totresp_ps = n(), .groups = "drop") %>% 
+  left_join(selpop4dist, 
+            by = c("district", 
+                   "gender", 
+                   "ethnicity", 
+                   "agegp" = "age2")) %>% 
+  mutate(PS = pop_ps/totresp_ps) %>% 
+  select(-c(state, date))
+
+PS_tab
+```
+
+combine
+
+```{r}
+simselangords4 <- simselangords3 %>% 
+  left_join(w1_tab, by = "district") %>% 
+  left_join(F_tab, by = join_by(district, sampnum_d)) %>% 
+  left_join(PS_tab, by = join_by(district, gender, agegp, ethnicity)) %>% 
+  mutate(final_weight = W1*NRF*PS, 
+         across(.cols = c(pop_d:W1, pop_ps), 
+                .fns = ~ as.integer(.))) %>%  
+  set_variable_labels(pop_d = "population for district",
+                      sampnum_d = "total sample size for district", 
+                      W1 = "Inverse Sampling Probability", 
+                      totresp_d = "total respoondent for district", 
+                      NRF = "Non-response Adjustment", 
+                      totresp_ps = "total respondent for PS - district, age, gender, agegp", 
+                      pop_ps = "population for PS", 
+                      PS = "Post-stratification", 
+                      final_weight = "Final Sampling Weight") %>% 
+  select(-agegp)
+```
+
+```{r}
+#writexl::write_xlsx(simselangords4, "20240926_SelSimData.xlsx")
+```
+
+
+
+# Final Dataset
+
+```{r}
+weight <- simselangords4 %>% 
+  select(id, pop_d:final_weight)
+
+simselds <- simselangords2 %>% 
+  full_join(weight, by = "id") %>% 
+  select(-agegp)
+
+simselds
+```
+
+```{r}
+#write_sav(simselds, "20240926_SelSimData.sav")
+```
+
+```{r}
+
+```
+
+# Clean Dataset
+
+```{r}
+simselds %>% 
+  mutate(agegp = cut(age, 
+                     breaks = c(19, 29, 39, 49, 59), 
+                     labels = c("1", "2", "3", "4")), 
+         agegp = as.integer(agegp), 
+         .after = age) %>% 
+  mutate(bmi = round(weight/(height/100)^2, 1), 
+         .after = weight) %>% 
+  mutate(dm_status = cut(hba1c, 
+                         breaks = c(0, 6.5, 20), 
+                         labels = c("1", "2")), 
+         dm_status = as.integer(dm_status), 
+         .after = hba1c) %>%
+  set_variable_labels(agegp = "Age Group", 
+                      bmi = "BMI (kg/m2)", 
+                      dm_status = "Diabetes Status (HbA1c)") %>% 
+  set_value_labels(agegp = c("20-29" = 1, 
+                             "30-39" = 2, 
+                             "40-49" = 3, 
+                             "50-59" = 4), 
+                   dm_status = c("Normal" = 1, 
+                                 "Diabetes" = 2)) #%>% 
+  #write_sav("20240926_SelSimDataClean.sav")
+
+
+```
+

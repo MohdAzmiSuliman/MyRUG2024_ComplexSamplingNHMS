@@ -42,3 +42,34 @@ selsimds <- selsimds0 %>%
   to_factor()
   
 ```
+
+```{r}
+pop_dist %>% 
+  distinct(state)
+```
+
+
+```{r}
+set.seed(121)
+selected_district <- pop_dist %>% 
+  distinct(state, district) %>% 
+  mutate(zone = case_when(state %in% c("Johor", "Melaka", 
+                                      "Negeri Sembilan") ~ "Selatan", 
+                         state %in% c("Kedah", "Perak", 
+                                      "Perlis", "Pulau Pinang") ~ "Utara", 
+                         state %in% c("Kelantan", "Pahang", 
+                                      "Terengganu") ~ "Timur", 
+                         state %in% c("Selangor", "W.P. Kuala Lumpur", 
+                                      "W.P. Putrajaya") ~ "Tengah", 
+                         state %in% c("Sabah", "Sarawak", 
+                                      "W.P. Labuan") ~ "Borneo")) %>% 
+  group_by(zone) %>% 
+  slice_sample(n = 2) %>% 
+  ungroup() %>% 
+  relocate(zone, .before = 1)
+
+selected_district
+
+write_rds(selected_district, "selected_district.rds")
+```
+

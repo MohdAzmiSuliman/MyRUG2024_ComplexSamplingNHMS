@@ -181,17 +181,103 @@ sim_pop %>%
 -   EBs: Geographical areas in Malaysia divide by DOSM
 -   LQs: Households within EBs, approximately 80-120 LQs per EB
 
-
 ## Complex Sampling Design
 
--   These stratification and clustering however affect the sampling probability, and thus the estimation need to consider for this complex sampling design. 
+-   These stratification and clustering however affect the sampling probability, and thus the estimation need to consider for this complex sampling design.
 -   Therefore, each unit is assigned a weight to account for the probability of selection.
-
 
 ## Sampling Weight in NHMS
 
 -   The sampling weight is calculated as follows:
     -   W1 = the inverse probability of selecting the EBs
+    -   W2 = the inverse probability of selecting the LQs
     -   F = the non-response adjustment factor
     -   PS = post-stratification adjustment factor calculated by state, gender and ethnicity
-    
+
+# NHMS 2023
+
+## NHMS 2023: Non-communicable Diseases & Healthcare Demand
+
+-   In 2023, Institute for Public Health (Institut Kesihatan Umum, IKU), has conducted National Health and Morbidity Survey, with theme for NCD & Health Care Demand.
+-   Reports can be access from IKU's website.
+
+![](Images/NHMS2024_IKUPage.png)
+
+## NHMS 2023: Sampling Method
+
+-   Data collection took place between **11 July and 29 September 2023**.
+-   A total of **5,006 households (living quarters)** were successfully visited.
+-   **13,616 respondents** participated in the survey.
+-   These respondents were used to estimate the **Malaysian adult population**, approximately **22 million**.
+
+## NHMS 2023: Findings
+
+-   Various modules were included in NHMS 2023, on NCDs and healthcare demand.
+-   The cholesterol module, for example, used based on WHO's STEPwise approach.
+-   Out of all of respondents, 4,353 were classified as having raised total cholesterol.
+-   These 4,353 respondent with raised total cholesterol reflected to prevalence of 33.3%, or estimated 7.6 million Malaysian adults.
+
+
+# Analysing Complex Sampling Design
+
+## Simulating Complex Sampling Design.
+
+-   NHMS data was confidential, and I was not allow to share the data.
+-   Public (or researcher) can applied the data via NIH Data Repository thru https://nihdars.nih.gov.my/
+-   However, for this session purpose, I will simulate simple data to demonstrate complex sampling design.
+-   Population data will be used from 2022 Malaysia population data from opendosm
+https://open.dosm.gov.my/data-catalogue/population_district
+-   While disease data will be simulate. 
+-   Please note that since the data is simulate, IT MUST NOT USE FOR REAL WORLD PUPROSE / REFERENCE
+
+## Simulating Population
+
+```{r}
+# If not already installed, do: install.packages("arrow")
+library(arrow)
+pop_mydist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet") %>% 
+  filter(date == dmy("01/01/23"), 
+         sex != "both", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", "45-49", 
+                    "50-54", "55-59"), 
+         ethnicity %in% c("bumi_malay", "chinese", "indian"))
+```
+
+
+```{r}
+pop_mydist %>% 
+  count(state, district) %>% 
+  count(state)
+
+```
+
+
+## Selecting District
+
+```{r}
+#| eval: false
+
+pop_mydist %>% 
+  distinct(state, district) %>% 
+  mutate(zone = case_when(state %in% c("Johor", "Melaka", 
+                                      "Negeri Sembilan") ~ "Selatan", 
+                         state %in% c("Kedah", "Perak", 
+                                      "Perlis", "Pulau Pinang") ~ "Utara", 
+                         state %in% c("Kelantan", "Pahang", 
+                                      "Terengganu") ~ "Timur", 
+                         state %in% c("Selangor", "W.P. Kuala Lumpur", 
+                                      "W.P. Putrajaya") ~ "Tengah", 
+                         state %in% c("Sabah", "Sarawak", 
+                                      "W.P. Labuan") ~ "Borneo")) %>% 
+  group_by(zone) %>% 
+  slice_sample(n = 2) %>% 
+  relocate(zone, .before = 1)
+```
+
+```{r}
+#| echo: false
+
+selected_district <- read_rds("0_PrepDataSim/selected_district.rds")
+selected_district
+```
+

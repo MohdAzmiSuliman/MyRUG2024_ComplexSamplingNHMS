@@ -41,7 +41,7 @@ pacman::p_load(tidyverse, haven, labelled, arrow, simstudy)
 ```
 
 
-# Selangor Background Population
+# Population
 
 Data source: OpenDOSM
 
@@ -77,6 +77,11 @@ selpop4dist
 selpop4dist %>% 
   group_by(district) %>% 
   summarise(pop_d = sum(pop_ps, na.rm = TRUE))
+
+
+selected_district <- read_rds("selected_district.rds") %>% 
+  mutate(n = 1:10)
+selected_district 
 ```
 
 
@@ -105,60 +110,41 @@ Simulation
 
 ```{r}
 set.seed(245)
-simselangords0 <- genData(200, def) %>% 
-  mutate(weight = BMI * (height/100)^2, 
+simnhmsds0 <- genData(400, def) %>% 
+  mutate(gender = case_when(gender == 0 ~ "Male", 
+                            gender == 1 ~ "Female"), 
+         agegp = cut(age, 
+                     breaks = c(19, 29, 39, 49, 59), 
+                     labels = c("20-29", "30-39", "40-49", "50-59")), 
+         ethnicity = case_when(ethnicity == 1 ~ "Malay", 
+                               ethnicity == 2 ~ "Chinese", 
+                               ethnicity == 3 ~ "Indian"), 
+         weight = BMI * (height/100)^2, 
          across(.cols = c(hba1c, weight), 
                 .fns = ~ round(., 1)), 
          across(.cols = c(height), 
                 .fns = ~ round(., 2)), 
-         district = c(rep(1, 40), 
-                    rep(3, 40), 
-                    rep(4, 40), 
-                    rep(5, 40), 
-                    rep(6, 40)), 
+         district = rep(1:10, each = 40), 
          across(.cols = c(district, age, height, PAhour), 
                 .fns = ~ as.integer(.))) %>% 
   relocate(weight, .after = height) %>% 
-  select(id, district, everything(), -BMI)
+  select(id, district, everything(), -BMI) %>% 
+  right_join(selected_district, 
+            ., 
+            by = c("n" = "district")) %>% 
+  select(id, zone:district, gender:age, agegp, everything(), -n)
 
-simselangords0
-```
-
-Full Response
-
-```{r}
-simselangords1 <- simselangords0 %>%
-  mutate(agegp = cut(age, 
-                     breaks = c(19, 29, 39, 49, 59), 
-                     labels = c("1", "2", "3", "4")), 
-         agegp = as.integer(agegp), 
-         .after = age) %>% 
-  set_variable_labels(district = "District", 
-                      gender = "Gender", 
-                      age = "Age (year)", 
-                      agegp = "Age Group", 
-                      ethnicity = "Ethnicity", 
-                      height = "Height (cm)", 
-                      weight = "Weight (kg)", 
-                      PAhour = "Physical Activity (hour/day)", 
-                      hba1c = "HbA1c (%)") %>% 
-  set_value_labels(district = c("Gombak" = 1, 
-                                "Kuala Langat" = 3, 
-                                "Kuala Selangor" = 4, 
-                                "Petaling" = 5, 
-                                "Sabak Bernam" = 6), 
-                   gender = c("Male" = 0, 
-                              "Female" = 1), 
-                   agegp = c("20-29" = 1, 
-                             "30-39" = 2, 
-                             "40-49" = 3, 
-                             "50-59" = 4), 
-                   ethnicity = c("Malay" = 1, 
-                                 "Chinese" = 2, 
-                                 "Indian" = 3))
+simnhmsds0
 ```
 
 Remove "non-response"
+
+```{r}
+sample_sizes <- list("Borneo" = 38, "Selatan" = 34, "Tengah" = 32, 
+                     "Timur" = 38, "Utara" = 36)
+
+```
+
 
 ```{r}
 nested_simdistsel0 <- simselangords1 %>%
