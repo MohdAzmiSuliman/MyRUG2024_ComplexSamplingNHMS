@@ -238,20 +238,31 @@ https://open.dosm.gov.my/data-catalogue/population_district
 -   In 2023, the population that cover the target population was 12.8 million
 
 ```{r}
+library(arrow)
+
 pop_mydist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet") %>% 
   filter(date == dmy("01/01/23"), 
          sex != "overall", 
          age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", 
                     "45-49", "50-54", "55-59"), 
-         ethnicity %in% c("bumi_malay", "chinese", "indian"))
+         ethnicity %in% c("bumi_malay", "chinese", "indian")) %>% 
+  rename(gender = sex) %>% 
+  mutate(gender = fct_recode(gender, 
+                             "Male" = "male", 
+                             "Female" = "female"), 
+         ethnicity = fct_recode(ethnicity, 
+                                "Malay" = "bumi_malay", 
+                                "Chinese" = "chinese", 
+                                "Indian" = "indian"), 
+         population = population * 1000)
 
-head(pop_mydist)
+pop_mydist
 ```
 
 
 ```{r}
 pop_mydist %>% 
-  summarise(population = sum(population*1000)) %>% 
+  summarise(population = sum(population)) %>% 
   mutate(population = scales::label_comma()(population))
 
 ```
@@ -288,12 +299,21 @@ selected_district <- pop_mydist %>%
   ungroup() %>% 
   relocate(zone, .before = 1)
 
-selected_district 
+selected_district
+```
 
+
+```{r}
+#| echo: false
+#| eval: false
+
+write_rds(selected_district, "Source/selected_district.rds")
 ```
 
 ```{r}
-selected_district <- read_rds("0_PrepDataSim/selected_district.rds")
+#| echo: false
+
+selected_district <- read_rds("Source/selected_district.rds")
 selected_district 
 ```
 
@@ -334,16 +354,32 @@ simnhmsds0 <- genData(400, def) %>%
          across(.cols = c(height), 
                 .fns = ~ round(., 2)), 
          district = rep(1:10, each = 40), 
-         across(.cols = c(district, age, height, PAhour), 
+         dm_dx = cut(hba1c, 
+                     breaks = c(0, 6.49, 10), 
+                     labels = c("0", "1")), 
+         across(.cols = c(district, age, height, PAhour, dm_dx), 
                 .fns = ~ as.integer(.))) %>% 
   relocate(weight, .after = height) %>% 
   select(id, district, everything(), -BMI) %>% 
   right_join(selected_district %>% mutate(n = 1:10), ., 
             by = c("n" = "district")) %>% 
   select(id, zone:district, gender:age, agegp, everything(), -n)
+
+head(simnhmsds0)
 ```
 
 ```{r}
+#| echo: false
+#| eval: false
+
+write_rds(simnhmsds0, "Source/simnhmsds0.rds")
+```
+
+
+```{r}
+#| echo: false
+
+simnhmsds0 <- read_rds("Source/simnhmsds0.rds")
 head(simnhmsds0)
 ```
 
@@ -373,10 +409,11 @@ simnhmsds_final <- map(simnhmsds_split, function(data) {
     ungroup()
 }) %>%
   bind_rows() %>% 
-  arrange(id)
+  arrange(id) %>% 
+  mutate(success = 1, 
+         .before = 1)
 
-simnhmsds_final %>% 
-  count(district)
+head(simnhmsds_final)
 ```
 
 
@@ -399,7 +436,7 @@ simnhmsds_final %>%
 -   Thus the weight for district selection, for example for borneo zone, is 68 (total district in borneo), divide by 2 (selected district in borneo)
 
 ```{r}
-pop_mydist %>% 
+design_weight <- pop_mydist %>% 
   distinct(state, district) %>% 
   mutate(zone = case_when(state %in% c("Johor", "Melaka", 
                                       "Negeri Sembilan") ~ "Selatan", 
@@ -416,7 +453,11 @@ pop_mydist %>%
   mutate(selected_district = 2, 
          f1 = selected_district / total_district, 
          W1 = 1/f1)
+
+design_weight
 ```
+
+
 
 ## Non-response Weight
 
@@ -431,13 +472,51 @@ pop_mydist %>%
 -   Thus the weight for example for borneo is 40 (total sample) divide by 38 (success respondent)
 
 ```{r}
-selected_district %>% 
+nonresponse_weight <- selected_district %>% 
   mutate(fnr = case_when(zone == "Utara" ~ 36/40, 
                        zone == "Selatan" ~ 34/40, 
                        zone == "Timur" ~ 38/40, 
                        zone == "Tengah" ~ 32/40, 
                        zone == "Borneo" ~ 38/40), 
-         F = 1/fnr)
+         Fw = 1/fnr)
+
+nonresponse_weight
+```
+
+## Adjusted Weight for District Selection and Non-response
+
+calculate design weight by district
+
+```{r}
+library(survey)
+library(srvyr)
+
+district_ws <- simnhmsds_final %>% 
+  left_join(., 
+            design_weight %>% 
+              select(zone, W1), 
+            by = "zone") %>% 
+  as_survey_design(id = 1, 
+                   weight = W1) %>% 
+  group_by(district) %>% 
+  summarise(district_w1 = survey_total(success), 
+            .groups = "drop")
+
+
+district_ws
+```
+
+calculate design weight by district and non-response
+
+```{r}
+district_adw <- nonresponse_weight %>% 
+  left_join(., 
+            district_ws %>% 
+              select(district, district_w1), 
+            by = "district") %>% 
+  mutate(district_adw = district_w1 * Fw)
+
+district_adw
 ```
 
 
@@ -446,17 +525,117 @@ selected_district %>%
 -   Post-stratification adjustment factor (PS) is a bit tricky. 
 -   The idea is we want each sample will represent the population, by it stratification type.
 -   For example, in this simulation, we will post-strat to age group, gender and ethnicity.
--   For that, we need to calculate, for each age group, gender and ethnicity, how many sample in our sample, and how many population is in the population.
+-   For that, we need to calculate, for each age group, gender and ethnicity, how many weighted sample of the specific category
 
 ```{r}
-pop_mydist %>% 
+ps_pop <- pop_mydist %>% 
   mutate(agegp = case_when(age %in% c("20-24", "24-29") ~ "20-29", 
                           age %in% c("30-34", "35-39") ~ "30-39", 
                           age %in% c("40-44", "45-49") ~ "40-49", 
                           age %in% c("50-54", "55-59") ~ "50-59")) %>% 
-  group_by(sex, agegp, ethnicity) %>% 
+  group_by(gender, agegp, ethnicity) %>% 
   summarise(population = sum(population))
+
+ps_pop %>% 
+  mutate(popcoma = scales::label_comma()(population))
 ```
 
 
-## Selecting District
+```{r}
+sampel_weight <- simnhmsds_final %>% 
+  left_join(., 
+            district_adw %>% select(district, district_adw)) %>% 
+  as_survey_design(id = 1, 
+                   weights = district_adw) %>% 
+  group_by(gender, agegp, ethnicity) %>% 
+  summarise(sampel_adw = survey_total(success), 
+            .groups = "drop")  %>% 
+  left_join(simnhmsds_final %>% 
+              count(gender, agegp, ethnicity), 
+            .)
+
+sampel_weight
+```
+
+
+
+```{r}
+ps_finalweight <- sampel_weight %>% 
+  select(-sampel_adw_se) %>% 
+  left_join(., 
+            ps_pop, 
+            by = join_by(gender, agegp, ethnicity)) %>% 
+  mutate(fpop = population / sampel_adw, 
+         final_weight = 1/fpop)
+
+ps_finalweight
+```
+
+
+## attaching final weight to dataset
+
+```{r}
+simnhmsds_weight <- simnhmsds_final %>% 
+  left_join(., 
+            ps_finalweight %>% 
+              select(gender, agegp, ethnicity, final_weight), 
+            by = join_by(gender, agegp, ethnicity))
+
+simnhmsds_weight
+```
+
+# Survey Package
+
+## Survey Package
+
+-   use to apply weight for sampling weight
+
+## Setup Complex Design for Analysis
+
+-   Setup complex design using `svydesign` function.
+-   Parameters:
+    -   `ids`: cluster id. ~1 if no cluster
+    -   `probs` or `weights`: sampling probability or weight, use only one
+    -   `strata`: strata id. NULL (or leave unspecified) if no strata
+    -   `data`: dataset
+-   We can setup unweighted design first
+
+```{r}
+unwt_dsg <- svydesign(ids = ~1, 
+                      weights = 1, 
+                      data = simnhmsds_weight)
+
+summary(unwt_dsg)
+```
+
+-   Setup the weighted design
+
+```{r}
+wtds_dsg <- svydesign(ids = ~district, 
+                      weights = ~final_weight, 
+                      strata = ~zone,
+                      data = simnhmsds_weight)
+
+summary(wtds_dsg)
+```
+
+## Estimating Prevalence
+
+```{r}
+svymean(x = ~dm_dx, 
+         design = wtds_dsg, 
+         na.rm = T)
+```
+
+
+
+## Confidence Interval
+
+```{r}
+svyciprop(formula = ~dm_dx, 
+         design = wtds_dsg) %>% 
+  attr(., "ci")
+```
+
+
+
