@@ -357,6 +357,7 @@ simnhmsds0 <- genData(400, def) %>%
          dm_dx = cut(hba1c, 
                      breaks = c(0, 6.49, 10), 
                      labels = c("0", "1")), 
+         dm_dx = as.numeric(dm_dx) - 1, 
          across(.cols = c(district, age, height, PAhour, dm_dx), 
                 .fns = ~ as.integer(.))) %>% 
   relocate(weight, .after = height) %>% 
@@ -502,7 +503,6 @@ district_ws <- simnhmsds_final %>%
   summarise(district_w1 = survey_total(success), 
             .groups = "drop")
 
-
 district_ws
 ```
 
@@ -534,7 +534,8 @@ ps_pop <- pop_mydist %>%
                           age %in% c("40-44", "45-49") ~ "40-49", 
                           age %in% c("50-54", "55-59") ~ "50-59")) %>% 
   group_by(gender, agegp, ethnicity) %>% 
-  summarise(population = sum(population))
+  summarise(population = sum(population), 
+            .groups = "drop")
 
 ps_pop %>% 
   mutate(popcoma = scales::label_comma()(population))
@@ -542,47 +543,51 @@ ps_pop %>%
 
 
 ```{r}
-sampel_weight <- simnhmsds_final %>% 
+ps_weight <- simnhmsds_final %>% 
   left_join(., 
-            district_adw %>% select(district, district_adw)) %>% 
+            district_adw %>% 
+              select(district, district_adw), 
+            by = join_by(district)) %>% 
   as_survey_design(id = 1, 
                    weights = district_adw) %>% 
   group_by(gender, agegp, ethnicity) %>% 
-  summarise(sampel_adw = survey_total(success), 
-            .groups = "drop")  %>% 
+  summarise(ps_adw = survey_total(success), 
+            .groups = "drop") %>% 
+  select(-ps_adw_se) %>% 
   left_join(simnhmsds_final %>% 
               count(gender, agegp, ethnicity), 
-            .)
+            ., 
+            by = join_by(gender, agegp, ethnicity)) %>% 
+  left_join(., 
+            ps_pop,
+            by = join_by(gender, agegp, ethnicity)) %>% 
+  mutate(fps = population / ps_adw, 
+         final_weight = 1/fps)
 
-sampel_weight
+ps_weight
 ```
 
 
 
 ```{r}
-ps_finalweight <- sampel_weight %>% 
-  select(-sampel_adw_se) %>% 
-  left_join(., 
-            ps_pop, 
-            by = join_by(gender, agegp, ethnicity)) %>% 
-  mutate(fpop = population / sampel_adw, 
-         final_weight = 1/fpop)
 
-ps_finalweight
 ```
 
 
 ## attaching final weight to dataset
 
+
 ```{r}
-simnhmsds_weight <- simnhmsds_final %>% 
+simnhmsds_weight <-  simnhmsds_final %>% 
   left_join(., 
-            ps_finalweight %>% 
+            ps_weight %>% 
               select(gender, agegp, ethnicity, final_weight), 
             by = join_by(gender, agegp, ethnicity))
 
 simnhmsds_weight
 ```
+
+
 
 # Survey Package
 
@@ -618,6 +623,16 @@ wtds_dsg <- svydesign(ids = ~district,
 
 summary(wtds_dsg)
 ```
+
+## Population
+
+```{r}
+svytotal(x = ~success, 
+         design = wtds_dsg, 
+         na.rm = T)
+```
+
+
 
 ## Estimating Prevalence
 

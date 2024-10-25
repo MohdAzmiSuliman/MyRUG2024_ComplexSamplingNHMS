@@ -1,0 +1,604 @@
+---
+title: "Complex Sampling Design in National Health and Morbidity Survey (NHMS)"
+subtitle: "Survey Package in R"
+format: 
+  clean-revealjs: 
+    slide-number: true
+    lightbox: true
+    footer: "Complex Sampling Design in NHMS"
+author:
+  - name: Mohd Azmi Bin Suliman
+    orcid: 0000-0002-2125-3811
+    email: azmi.suliman@moh.gov.my
+    affiliations: Pusat Penyelidikan Penyakit Tak Berjangkit, Institut Kesihatan Umum
+date: 2024-10-27
+date-format: "dddd, DD MMMM YYYY"
+embed-resources: true
+editor: 
+  markdown: 
+    wrap: sentence
+execute:
+  echo: true
+
+---
+
+# National Health and Morbidity Survey (NHMS)
+
+```{r}
+#| label: setup
+#| echo: false
+
+pacman::p_load(tidyverse)
+
+```
+
+```{css}
+#| echo: false
+
+code.sourceCode {
+  font-size: 1.0em;
+}
+```
+
+## Overview of NHMS
+
+1.  **Nationwide Health Survey**: Conducted by the Ministry of Health Malaysia to assess the health and healthcare needs of Malaysians.
+2.  **Regularly Conducted**: Since 1986, NHMS has been conducted with varying intervals, focusing on different health themes.
+3.  **Key Health Indicators**: Focuses on topics like Non-Communicable Diseases (NCDs), infectious diseases, and healthcare demand.
+4.  **Representative Sampling**: Nationally representative, covering different states, age groups, and ethnicities.
+5.  **Policy Impact**: NHMS findings guide national health policies and strategies.
+
+## NHMS Reports
+
+-   NHMS reports are available on the Institute for Public Health (IKU) website.
+
+![](Images/NHMS_IKUPage.png)
+
+
+# Census vs Survey
+
+## Census vs Survey
+
+-   **Census**: Collects data from every individual in a population. It's costly, time-consuming, and not feasible for large populations.
+    -   e.g., DOSM conducts a Population and Housing Census every 10 years.
+-   **Survey**: Collects data from a sample of the population. More cost-effective and quicker but raises the question of representation.
+
+## Why Not Simple Random Sampling (SRS)?
+
+-   **Simple Random Sampling (SRS)**: Every individual theoretically has an equal chance of selection.
+    -   Impractical for large, diverse populations.
+    -   Assumes homogeneity, which leads to biases, especially with underrepresented groups.
+-   **Challenges of SRS**:
+    -   Requires a complete list of the population for equal chance selection, which is often unavailable.
+
+# Simple Random Sampling (SRS) – Simulation
+
+## The Risk of Underrepresentation
+
+-   SRS may not represent minority groups adequately.
+
+. . . 
+
+-   Hypothetical Population, In a population of 1,000:
+    -   46% Malay, 33% Chinese, 25% Indian, 1% Borneo.
+
+
+```{r}
+
+
+sim_pop <- tibble(ethnicity = c(rep("Malay", 460), 
+                                rep("Chinese", 330), 
+                                rep("Indian", 250), 
+                                rep("Borneo", 10)))
+
+sim_pop %>% 
+  count(ethnicity) %>% 
+  arrange(desc(n))
+```
+
+## The Risk of Underrepresentation
+
+-   Taking an SRS of 50 people, will the Borneo group (1%) be included?
+
+```{r}
+sim_pop %>% 
+  sample_n(50) %>% 
+  count(ethnicity)
+```
+
+. . .
+
+-   Let's try it again:
+
+```{r}
+sim_pop %>% 
+  sample_n(50) %>% 
+  count(ethnicity)
+```
+
+## Key Takeaways from the Simulation
+
+-   And One More Time
+
+```{r}
+sim_pop %>% 
+  sample_n(50) %>% 
+  count(ethnicity)
+```
+
+. . .
+
+-   As shown in this short simulation, **Simple Random Sampling** may or may not select individuals from the **Borneo** group, which makes up only 1% of the population.
+-   To ensure that the **Borneo** group is properly represented in the sample, we may need to use **stratified sampling** to guarantee their inclusion.
+
+
+
+
+# Complex Sampling Design in NHMS
+
+## NHMS Complex Sampling
+
+-   NHMS applies stratification (State and Urban/Rural) and clustering (DOSM's enumeration blocks) to ensure representation.
+-   Two-stage Sampling:
+    -   **Primary Sampling Unit (PSU)**: Enumeration Blocks (EBs).
+    -   **Secondary Sampling Units (SSU)**: Living Quarters (LQs) within EBs.
+-   Impact on Sampling: Stratification and clustering affect sampling probabilities, requiring the use of sampling weights.
+
+# NHMS 2023
+
+## NHMS 2023 Overview
+
+-   Theme: **Non-communicable Diseases (NCDs) & Healthcare Demand**.
+-   Data collected from 11 July to 29 September 2023.
+    -   5,006 households visited.
+    -   13,616 respondents, representing the Malaysian adult population (\~22 million).
+
+## NHMS 2023 Overview
+
+![](Images/NHMS2024_IKUPage.png)
+
+## NHMS 2023: Findings
+
+- NHMS 2023 included various modules focusing on **Non-Communicable Diseases (NCDs)** and **healthcare demand**.
+- The **cholesterol module** was conducted using WHO's **STEPwise approach**, which is a standardized method for collecting and analysing health data.
+- Among the respondents, **4,353 individuals** were identified as having **raised total cholesterol** levels.
+- This represents a **33.3% prevalence** of raised cholesterol, translating to an estimated **7.6 million Malaysian adults** with high cholesterol.
+
+
+
+# Simulation and Analysis of Complex Sampling Design
+
+## Purpose of Simulation
+
+-   Objective: Demonstrate how complex sampling design is applied in practice, mimicking the National Health and Morbidity Survey (NHMS) setup.
+-   Population Data: We simulate data using population estimates from OpenDOSM to replicate the adult population (ages 20-59) for Malaysia.
+-   Disease Data: Simulated based on characteristics such as BMI, age, gender, and ethnicity to study cholesterol prevalence.
+
+
+## Simulating Population
+
+-   Target Population:
+    -   We focus on three main ethnicities (Malay, Chinese, Indian), and simulate both male and female participants between 20-59 years of age.
+
+
+## Simulating Population
+
+-   OpenDOSM Population Data: Used for population distribution across states and districts, forming the basis for the simulated population. 
+
+```{r}
+
+library(arrow)
+
+pop_mydist <- read_parquet("https://storage.dosm.gov.my/population/population_district.parquet") %>% 
+  filter(date == dmy("01/01/23"), 
+         sex != "overall", 
+         age %in% c("20-24", "24-29", "30-34", "35-39", "40-44", 
+                    "45-49", "50-54", "55-59"), 
+         ethnicity %in% c("bumi_malay", "chinese", "indian")) %>% 
+  rename(gender = sex) %>% 
+  mutate(gender = fct_recode(gender, 
+                             "Male" = "male", 
+                             "Female" = "female"), 
+         ethnicity = fct_recode(ethnicity, 
+                                "Malay" = "bumi_malay", 
+                                "Chinese" = "chinese", 
+                                "Indian" = "indian"), 
+         population = population * 1000)
+```
+
+## 
+
+```{r}
+pop_mydist
+```
+
+. . .
+
+```{r}
+
+
+pop_mydist %>% 
+  summarise(population = sum(population)) %>% 
+  mutate(population = scales::label_comma()(population))
+
+```
+
+## Simulating Population
+
+-   Stratification by Zone:
+    -   Malaysia is divided into five zones (Utara, Selatan, Timur, Tengah, Borneo).
+    -   For each zone, two districts are randomly selected.
+
+
+```{r}
+#| eval: false
+
+set.seed(121)
+selected_district <- pop_mydist %>% 
+  distinct(state, district) %>% 
+  mutate(zone = case_when(state %in% c("Johor", "Melaka", 
+                                      "Negeri Sembilan") ~ "Selatan", 
+                         state %in% c("Kedah", "Perak", 
+                                      "Perlis", "Pulau Pinang") ~ "Utara", 
+                         state %in% c("Kelantan", "Pahang", 
+                                      "Terengganu") ~ "Timur", 
+                         state %in% c("Selangor", "W.P. Kuala Lumpur", 
+                                      "W.P. Putrajaya") ~ "Tengah", 
+                         state %in% c("Sabah", "Sarawak", 
+                                      "W.P. Labuan") ~ "Borneo")) %>% 
+  group_by(zone) %>% 
+  slice_sample(n = 2) %>% 
+  ungroup() %>% 
+  relocate(zone, .before = 1)
+
+selected_district
+```
+
+
+```{r}
+#| echo: false
+#| eval: false
+
+write_rds(selected_district, "Source/selected_district.rds")
+```
+
+## 
+
+```{r}
+#| echo: false
+
+selected_district <- read_rds("Source/selected_district.rds")
+selected_district 
+```
+
+
+
+## Simulating Participants
+
+-   Sample Size: 40 participants are selected from each of the 10 districts.
+-   Variables Simulated: Variables such as gender, age, ethnicity, BMI, and hba1c are simulated to reflect realistic population characteristics.
+-   Disease Data: The hba1c variable is used to categorize participants as diabetic or non-diabetic.
+
+## Define Simulation (simstudy package)
+
+```{r}
+
+#| eval: false
+
+library(simstudy)
+
+def <- defData(varname = "gender", dist = "binary", formula = 0.5, 
+               link = "identity") %>% 
+  defData(varname = "age", dist = "uniform", formula = "20;59") %>% 
+  defData(varname = "ethnicity", dist = "categorical", 
+          formula = "0.57;0.29;0.14") %>% 
+  defData(varname = "BMI", dist = "normal", formula = 26, variance = 2.6^2) %>% 
+  defData(varname = "height", dist = "normal", formula = 165, variance = 5) %>% 
+  defData(varname = "PAhour", dist = "uniform", formula = "2;6") %>% 
+  defData(varname = "hba1c", dist = "normal", variance = 1.4^2, 
+          formula = "2.4 + 0.05 * age + 0.1 * BMI - 0.15 * PAhour")
+```
+
+## Generate Dataset (simstudy package)
+
+```{r}
+
+#| eval: false
+
+set.seed(121)
+simnhmsds0 <- genData(400, def) %>% 
+  mutate(gender = case_when(gender == 0 ~ "Male", 
+                            gender == 1 ~ "Female"), 
+         agegp = cut(age, 
+                     breaks = c(19, 29, 39, 49, 59), 
+                     labels = c("20-29", "30-39", "40-49", "50-59")), 
+         ethnicity = case_when(ethnicity == 1 ~ "Malay", 
+                               ethnicity == 2 ~ "Chinese", 
+                               ethnicity == 3 ~ "Indian"), 
+         weight = BMI * (height/100)^2, 
+         across(.cols = c(hba1c, weight), 
+                .fns = ~ round(., 1)), 
+         across(.cols = c(height), 
+                .fns = ~ round(., 2)), 
+         district = rep(1:10, each = 40), 
+         dm_dx = cut(hba1c, 
+                     breaks = c(0, 6.49, 10), 
+                     labels = c("0", "1")), 
+         dm_dx = as.numeric(dm_dx) - 1, 
+         across(.cols = c(district, age, height, PAhour, dm_dx), 
+                .fns = ~ as.integer(.))) %>% 
+  relocate(weight, .after = height) %>% 
+  select(id, district, everything(), -BMI) %>% 
+  right_join(selected_district %>% mutate(n = 1:10), ., 
+            by = c("n" = "district")) %>% 
+  select(id, zone:district, gender:age, agegp, everything(), -n)
+```
+
+```{r}
+#| echo: false
+#| eval: false
+
+write_rds(simnhmsds0, "Source/simnhmsds0.rds")
+```
+
+## 
+
+```{r}
+#| echo: false
+
+simnhmsds0 <- read_rds("Source/simnhmsds0.rds")
+```
+
+```{r}
+
+
+head(simnhmsds0, 15)
+```
+
+## Simulating Non-response
+
+-   Non-response Adjustment: Different response rates are applied by zone (e.g., 36/40 for Utara), and the sampling weights are adjusted accordingly.
+-   Simulation of Non-response: The dataset is adjusted to reflect these response rates, ensuring the final dataset accounts for real-world data collection challenges.
+
+```{r}
+
+
+sample_sizes <- list("Utara" = 36, "Selatan" = 34, 
+                     "Timur" = 38, "Tengah" = 32, "Borneo" = 38)
+
+simnhmsds_split <- simnhmsds0 %>%
+  group_split(zone, .keep = TRUE)
+
+set.seed(121)
+simnhmsds_final <- map(simnhmsds_split, function(data) {
+  zone <- unique(data$zone)
+  data %>%
+    group_by(district) %>%
+    slice_sample(n = sample_sizes[[zone]]) %>%
+    ungroup()
+}) %>%
+  bind_rows() %>% 
+  arrange(id) %>% 
+  mutate(success = 1, 
+         .before = 1)
+```
+
+## Sampling Weights Calculation
+
+-   Design Weights (W1):
+    -   Calculated as the inverse probability of selecting a district within its respective zone.
+    -   Ensures that smaller districts are adequately represented in the final analysis.
+-   Non-response Adjustment Factor (F):
+    -   The inverse of the response rate for each district.
+    -   Adjusts the design weight to account for missing data due to non-response.
+-   Post-stratification Adjustment (PS)
+    -   Ensures that the sample reflects the actual population distribution by gender, age group, and ethnicity.
+    -   Uses the population data to adjust for any over- or under-representation in the sample.
+
+## Design Weight (W1)
+
+-   Design Weights (W1):
+    -   Calculated as the inverse probability of selecting a district within its respective zone.
+    -   Ensures that smaller districts are adequately represented in the final analysis.
+
+
+```{r}
+
+
+design_weight <- pop_mydist %>% 
+  distinct(state, district) %>% 
+  mutate(zone = case_when(state %in% c("Johor", "Melaka", "Negeri Sembilan") ~ "Selatan", 
+                         state %in% c("Kedah", "Perak", "Perlis", "Pulau Pinang") ~ "Utara", 
+                         state %in% c("Kelantan", "Pahang", "Terengganu") ~ "Timur", 
+                         state %in% c("Selangor", "W.P. Kuala Lumpur", "W.P. Putrajaya") ~ "Tengah", 
+                         state %in% c("Sabah", "Sarawak", "W.P. Labuan") ~ "Borneo")) %>% 
+  count(zone) %>% 
+  rename(total_district = n) %>% 
+  mutate(selected_district = 2, 
+         f1 = selected_district / total_district, 
+         W1 = 1/f1)
+
+design_weight
+```
+
+## Design Weight (W1)
+
+```{r}
+library(survey)
+library(srvyr)
+
+district_ws <- simnhmsds_final %>% 
+  left_join(., 
+            design_weight %>% 
+              select(zone, W1), 
+            by = "zone") %>% 
+  as_survey_design(id = 1, 
+                   weight = W1) %>% 
+  group_by(district) %>% 
+  summarise(district_w1 = survey_total(success), 
+            .groups = "drop")
+
+district_ws
+```
+
+
+## Non-response Adjustment Factor (F)
+
+-   Non-response Adjustment Factor (F):
+    -   The inverse of the response rate for each district.
+    -   Adjusts the design weight to account for missing data due to non-response.
+
+
+```{r}
+
+
+nonresponse_weight <- selected_district %>% 
+  mutate(fnr = case_when(zone == "Utara" ~ 36/40, 
+                       zone == "Selatan" ~ 34/40, 
+                       zone == "Timur" ~ 38/40, 
+                       zone == "Tengah" ~ 32/40, 
+                       zone == "Borneo" ~ 38/40), 
+         Fw = 1/fnr)
+
+nonresponse_weight
+```
+
+## Non-response Adjustment Factor (F)
+
+
+```{r}
+
+
+district_adw <- nonresponse_weight %>% 
+  left_join(., 
+            district_ws %>% 
+              select(district, district_w1), 
+            by = "district") %>% 
+  mutate(district_adw = district_w1 * Fw)
+
+district_adw
+```
+
+
+## Post-stratification Adjustment (PS)
+
+-   Post-stratification Adjustment (PS)
+    -   Ensures that the sample reflects the actual population distribution by gender, age group, and ethnicity.
+    -   Uses the population data to adjust for any over- or under-representation in the sample.
+
+
+## Total Population by Post-strat Group
+
+```{r}
+ps_pop <- pop_mydist %>% 
+  mutate(agegp = case_when(age %in% c("20-24", "24-29") ~ "20-29", 
+                          age %in% c("30-34", "35-39") ~ "30-39", 
+                          age %in% c("40-44", "45-49") ~ "40-49", 
+                          age %in% c("50-54", "55-59") ~ "50-59")) %>% 
+  group_by(gender, agegp, ethnicity) %>% 
+  summarise(population = sum(population), 
+            .groups = "drop")
+
+ps_pop %>% 
+  mutate(popcoma = scales::label_comma()(population))
+```
+
+## Post-stratification Adjustment (PS)
+
+```{r}
+ps_weight <- simnhmsds_final %>% 
+  left_join(., 
+            district_adw %>% 
+              select(district, district_adw), 
+            by = join_by(district)) %>% 
+  as_survey_design(id = 1, 
+                   weights = district_adw) %>% 
+  group_by(gender, agegp, ethnicity) %>% 
+  summarise(ps_adw = survey_total(success), 
+            .groups = "drop") %>% 
+  select(-ps_adw_se) %>% 
+  left_join(simnhmsds_final %>% 
+              count(gender, agegp, ethnicity), 
+            ., 
+            by = join_by(gender, agegp, ethnicity)) %>% 
+  left_join(., 
+            ps_pop,
+            by = join_by(gender, agegp, ethnicity)) %>% 
+  mutate(fps = population / ps_adw, 
+         final_weight = 1/fps)
+
+ps_weight
+```
+
+## Attaching Final Weight to Dataset
+
+```{r}
+simnhmsds_weight <-  simnhmsds_final %>% 
+  left_join(., 
+            ps_weight %>% 
+              select(gender, agegp, ethnicity, final_weight), 
+            by = join_by(gender, agegp, ethnicity))
+
+simnhmsds_weight
+```
+
+
+# Analyzing the Data
+
+## Survey Design Object:
+
+-   The `svydesign()` function from the survey package is used to define the complex survey design.
+-   We account for stratification, clustering, and weighting to accurately estimate population parameters.
+-   Parameters:
+    -   `ids`: cluster id. ~1 if no cluster
+    -   `probs` or `weights`: sampling probability or weight, use only one
+    -   `strata`: strata id. NULL (or leave unspecified) if no strata
+    -   `data`: dataset   
+
+## Unweighted Design
+
+
+```{r}
+unwt_dsg <- svydesign(ids = ~1, 
+                      weights = 1, 
+                      data = simnhmsds_weight)
+
+summary(unwt_dsg)
+```
+    
+## Weighted Design
+
+
+```{r}
+wtds_dsg <- svydesign(ids = ~district, 
+                      weights = ~final_weight, 
+                      strata = ~zone,
+                      data = simnhmsds_weight)
+
+summary(wtds_dsg)
+```
+
+
+## Estimating Population Prevalence
+
+-   We calculate estimates for key outcomes (e.g., prevalence of diabetes) using weighted data to ensure valid, representative conclusions.
+
+
+```{r}
+svymean(x = ~dm_dx, 
+         design = wtds_dsg, 
+         na.rm = T)
+```
+
+
+## Variance Estimation:
+
+-   Variance is estimated using complex sampling design techniques to ensure accurate confidence intervals for population estimates.
+
+
+```{r}
+svyciprop(formula = ~dm_dx, 
+         design = wtds_dsg) %>% 
+  attr(., "ci")
+```
+
