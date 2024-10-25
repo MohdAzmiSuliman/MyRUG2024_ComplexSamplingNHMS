@@ -84,16 +84,14 @@ code.sourceCode {
 
 
 ```{r}
-
-
 sim_pop <- tibble(ethnicity = c(rep("Malay", 460), 
                                 rep("Chinese", 330), 
                                 rep("Indian", 250), 
-                                rep("Borneo", 10)))
+                                rep("Borneo", 10))) %>% 
+  mutate(ethnicity = fct_relevel(ethnicity, "Malay", "Chinese", "Indian"))
 
 sim_pop %>% 
-  count(ethnicity) %>% 
-  arrange(desc(n))
+  count(ethnicity) %>% mutate(pct = scales::label_percent()(n/1000))
 ```
 
 ## The Risk of Underrepresentation
@@ -101,9 +99,8 @@ sim_pop %>%
 -   Taking an SRS of 50 people, will the Borneo group (1%) be included?
 
 ```{r}
-sim_pop %>% 
-  sample_n(50) %>% 
-  count(ethnicity)
+sim_pop %>% sample_n(50) %>% 
+  count(ethnicity) %>% mutate(pct = scales::label_percent()(n/50))
 ```
 
 . . .
@@ -111,9 +108,8 @@ sim_pop %>%
 -   Let's try it again:
 
 ```{r}
-sim_pop %>% 
-  sample_n(50) %>% 
-  count(ethnicity)
+sim_pop %>% sample_n(50) %>% 
+  count(ethnicity) %>% mutate(pct = scales::label_percent()(n/50))
 ```
 
 ## Key Takeaways from the Simulation
@@ -121,9 +117,8 @@ sim_pop %>%
 -   And One More Time
 
 ```{r}
-sim_pop %>% 
-  sample_n(50) %>% 
-  count(ethnicity)
+sim_pop %>% sample_n(50) %>% 
+  count(ethnicity) %>% mutate(pct = scales::label_percent()(n/50))
 ```
 
 . . .
@@ -236,16 +231,11 @@ pop_mydist %>%
 set.seed(121)
 selected_district <- pop_mydist %>% 
   distinct(state, district) %>% 
-  mutate(zone = case_when(state %in% c("Johor", "Melaka", 
-                                      "Negeri Sembilan") ~ "Selatan", 
-                         state %in% c("Kedah", "Perak", 
-                                      "Perlis", "Pulau Pinang") ~ "Utara", 
-                         state %in% c("Kelantan", "Pahang", 
-                                      "Terengganu") ~ "Timur", 
-                         state %in% c("Selangor", "W.P. Kuala Lumpur", 
-                                      "W.P. Putrajaya") ~ "Tengah", 
-                         state %in% c("Sabah", "Sarawak", 
-                                      "W.P. Labuan") ~ "Borneo")) %>% 
+  mutate(zone = case_when(state %in% c("Johor", "Melaka", "Negeri Sembilan") ~ "Selatan", 
+                         state %in% c("Kedah", "Perak", "Perlis", "Pulau Pinang") ~ "Utara", 
+                         state %in% c("Kelantan", "Pahang", "Terengganu") ~ "Timur", 
+                         state %in% c("Selangor", "W.P. Kuala Lumpur", "W.P. Putrajaya") ~ "Tengah", 
+                         state %in% c("Sabah", "Sarawak", "W.P. Labuan") ~ "Borneo")) %>% 
   group_by(zone) %>% 
   slice_sample(n = 2) %>% 
   ungroup() %>% 
@@ -360,6 +350,8 @@ head(simnhmsds0, 15)
 -   Non-response Adjustment: Different response rates are applied by zone (e.g., 36/40 for Utara), and the sampling weights are adjusted accordingly.
 -   Simulation of Non-response: The dataset is adjusted to reflect these response rates, ensuring the final dataset accounts for real-world data collection challenges.
 
+## Simulating Non-response
+
 ```{r}
 
 
@@ -391,6 +383,9 @@ simnhmsds_final <- map(simnhmsds_split, function(data) {
 -   Non-response Adjustment Factor (F):
     -   The inverse of the response rate for each district.
     -   Adjusts the design weight to account for missing data due to non-response.
+
+## Sampling Weights Calculation
+
 -   Post-stratification Adjustment (PS)
     -   Ensures that the sample reflects the actual population distribution by gender, age group, and ethnicity.
     -   Uses the population data to adjust for any over- or under-representation in the sample.
@@ -401,10 +396,9 @@ simnhmsds_final <- map(simnhmsds_split, function(data) {
     -   Calculated as the inverse probability of selecting a district within its respective zone.
     -   Ensures that smaller districts are adequately represented in the final analysis.
 
+## Design Weight (W1)
 
 ```{r}
-
-
 design_weight <- pop_mydist %>% 
   distinct(state, district) %>% 
   mutate(zone = case_when(state %in% c("Johor", "Melaka", "Negeri Sembilan") ~ "Selatan", 
@@ -423,6 +417,8 @@ design_weight
 
 ## Design Weight (W1)
 
+-   We use survey and srvyr package to recalculate the design weight by district
+
 ```{r}
 library(survey)
 library(srvyr)
@@ -437,7 +433,11 @@ district_ws <- simnhmsds_final %>%
   group_by(district) %>% 
   summarise(district_w1 = survey_total(success), 
             .groups = "drop")
+```
 
+## Design Weight (W1)
+
+```{r}
 district_ws
 ```
 
@@ -448,9 +448,8 @@ district_ws
     -   The inverse of the response rate for each district.
     -   Adjusts the design weight to account for missing data due to non-response.
 
-
 ```{r}
-
+#| eval: false
 
 nonresponse_weight <- selected_district %>% 
   mutate(fnr = case_when(zone == "Utara" ~ 36/40, 
@@ -463,12 +462,29 @@ nonresponse_weight <- selected_district %>%
 nonresponse_weight
 ```
 
+
 ## Non-response Adjustment Factor (F)
 
+```{r}
+#| echo: false
+
+nonresponse_weight <- selected_district %>% 
+  mutate(fnr = case_when(zone == "Utara" ~ 36/40, 
+                       zone == "Selatan" ~ 34/40, 
+                       zone == "Timur" ~ 38/40, 
+                       zone == "Tengah" ~ 32/40, 
+                       zone == "Borneo" ~ 38/40), 
+         Fw = 1/fnr)
+
+nonresponse_weight
+```
+
+
+## Non-response Adjustment Factor (F)
+
+-   The non-response adjustment factor (F) is calculated for each district based on the response rate.
 
 ```{r}
-
-
 district_adw <- nonresponse_weight %>% 
   left_join(., 
             district_ws %>% 
@@ -505,6 +521,8 @@ ps_pop %>%
 
 ## Post-stratification Adjustment (PS)
 
+-   The adjusted weight is attached back to our dataset, and post-stratification weight is calculated using survey and srvyr package.
+
 ```{r}
 ps_weight <- simnhmsds_final %>% 
   left_join(., 
@@ -526,11 +544,22 @@ ps_weight <- simnhmsds_final %>%
             by = join_by(gender, agegp, ethnicity)) %>% 
   mutate(fps = population / ps_adw, 
          final_weight = 1/fps)
+```
 
+
+## Post-stratification Adjustment (PS)
+
+-   The adjusted weight is attached back to our dataset, and post-stratification weight is calculated using survey and srvyr package.
+
+```{r}
 ps_weight
 ```
 
+
+
 ## Attaching Final Weight to Dataset
+
+-   The final weight is attached to the dataset for further analysis.
 
 ```{r}
 simnhmsds_weight <-  simnhmsds_final %>% 
@@ -602,3 +631,18 @@ svyciprop(formula = ~dm_dx,
   attr(., "ci")
 ```
 
+## Subgroup Analysis
+
+-   For subpopulation analysis, we can use `svyby( )` function
+
+```{r}
+svyby(formula = ~dm_dx, 
+      by = ~gender, 
+      design = wtds_dsg, 
+      FUN = svymean, 
+      na.rm = T)
+```
+
+## Thank you
+
+![](Images/Front_IKUPage.png)
